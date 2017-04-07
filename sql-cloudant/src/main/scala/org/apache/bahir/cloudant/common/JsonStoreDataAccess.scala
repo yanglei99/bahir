@@ -74,37 +74,27 @@ class JsonStoreDataAccess (config: CloudantConfig)  {
   }
 
   def getAll[T](url: String)
-      (implicit columns: Array[String] = null,
-      attrToFilters: Map[String, Array[Filter]] = null): Seq[String] = {
+      (implicit columns: Array[String] = null): Seq[String] = {
     this.getQueryResult[Seq[String]](url, processAll)
   }
 
   def getIterator(skip: Int, limit: Int, url: String)
       (implicit columns: Array[String] = null,
-      attrToFilters: Map[String, Array[Filter]] = null): Iterator[String] = {
-    implicit def convertSkip(skip: Int): String = {
-      val url = config.getLastUrl(skip)
-      if (url == null) {
-        skip.toString()
-      } else {
-        this.getQueryResult[String](url,
-          { result => config.getLastNum(Json.parse(result)).as[JsString].value})
-      }
-    }
-    val newUrl = config.getSubSetUrl(url, skip, limit)
+      postData: String = null): Iterator[String] = {
+    val newUrl = config.getSubSetUrl(url, skip, limit, postData!=null)
     this.getQueryResult[Iterator[String]](newUrl, processIterator)
   }
 
-  def getTotalRows(url: String): Int = {
-    val totalUrl = config.getTotalUrl(url)
-    this.getQueryResult[Int](totalUrl,
-        { result => config.getTotalRows(Json.parse(result))})
+  def getTotalRows(url: String, queryUsed: Boolean)
+      (implicit postData: String = null): Int = {
+      val totalUrl = (if (queryUsed) url else config.getTotalUrl(url))
+      this.getQueryResult[Int](totalUrl,
+          { result => config.getTotalRows(Json.parse(result))})
   }
 
   private def processAll (result: String)
-      (implicit columns: Array[String],
-      attrToFilters: Map[String, Array[Filter]] = null) = {
-    logger.debug(s"processAll columns:$columns, attrToFilters:$attrToFilters")
+      (implicit columns: Array[String]) = {
+    logger.debug(s"processAll columns:$columns")
     val jsonResult: JsValue = Json.parse(result)
     var rows = config.getRows(jsonResult)
     if (config.viewName == null) {
@@ -115,8 +105,7 @@ class JsonStoreDataAccess (config: CloudantConfig)  {
   }
 
   private def processIterator (result: String)
-    (implicit columns: Array[String],
-    attrToFilters: Map[String, Array[Filter]] = null): Iterator[String] = {
+    (implicit columns: Array[String]): Iterator[String] = {
     processAll(result).iterator
   }
 
@@ -137,23 +126,39 @@ class JsonStoreDataAccess (config: CloudantConfig)  {
     getQueryResult(url, processResults)
   }
 
-
   private def getQueryResult[T]
       (url: String, postProcessor: (String) => T)
       (implicit columns: Array[String] = null,
-      attrToFilters: Map[String, Array[Filter]] = null) : T = {
-    logger.warn("Loading data from Cloudant using query: " + url)
+      postData: String = null) : T = {
+    logger.info(s"Loading data from Cloudant using: $url , postData: $postData")
     val requestTimeout = config.requestTimeout.toInt
     val clRequest: HttpRequest = config.username match {
       case null =>
-        Http(url)
+        if (postData!=null) {
+          Http(url)
+          .postData(postData)
+          .timeout(connTimeoutMs = 1000, readTimeoutMs = requestTimeout)
+          .header("Content-Type", "application/json")
+          .header("User-Agent", "spark-cloudant")
+        } else {
+          Http(url)
             .timeout(connTimeoutMs = 1000, readTimeoutMs = requestTimeout)
             .header("User-Agent", "spark-cloudant")
+        }
       case _ =>
-        Http(url)
+        if (postData!=null) {
+          Http(url)
+          .postData(postData)
+          .timeout(connTimeoutMs = 1000, readTimeoutMs = requestTimeout)
+          .header("Content-Type", "application/json")
+          .header("User-Agent", "spark-cloudant")
+          .auth(config.username, config.password)
+        } else {
+          Http(url)
             .timeout(connTimeoutMs = 1000, readTimeoutMs = requestTimeout)
             .header("User-Agent", "spark-cloudant")
             .auth(config.username, config.password)
+        }
     }
 
     val clResponse: HttpResponse[String] = clRequest.execute()
