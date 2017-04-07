@@ -105,7 +105,7 @@ class DefaultSource extends RelationProvider
           inSchema
         } else {
           val df = if (config.getSchemaSampleSize() ==
-            JsonStoreConfigManager.SCHEMA_FOR_ALL_DOCS_NUM &&
+            JsonStoreConfigManager.ALL_DOCS_LIMIT &&
             config.viewName == null
             && config.indexName == null) {
             val cloudantRDD = new JsonStoreRDD(sqlContext.sparkContext, config)

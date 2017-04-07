@@ -39,19 +39,6 @@ class JsonStoreDataAccess (config: CloudantConfig)  {
   lazy val logger = LoggerFactory.getLogger(getClass)
   implicit lazy val timeout = config.requestTimeout
 
-  def getOne()( implicit columns: Array[String] = null): Seq[String] = {
-    var r = this.getQueryResult[Seq[String]](config.getOneUrlExcludeDDoc1(), processAll)
-    if (r.size == 0 ) {
-      r = this.getQueryResult[Seq[String]](config.getOneUrlExcludeDDoc2(), processAll)
-    }
-    if (r.size == 0) {
-      throw new RuntimeException("Database " + config.getDbname() +
-        " doesn't have any non-design documents!")
-    } else {
-      r
-    }
-  }
-
   def getMany(limit: Int)(implicit columns: Array[String] = null): Seq[String] = {
     if (limit == 0) {
       throw new RuntimeException("Database " + config.getDbname() +
@@ -63,7 +50,7 @@ class JsonStoreDataAccess (config: CloudantConfig)  {
     }
     var r = this.getQueryResult[Seq[String]](config.getAllDocsUrl(limit), processAll)
     if (r.size == 0) {
-      r = this.getQueryResult[Seq[String]](config.getAllDocsUrlExcludeDDoc(limit), processAll)
+      r = this.getQueryResult[Seq[String]](config.getAllDocsUrl(limit, true), processAll)
     }
     if (r.size == 0) {
       throw new RuntimeException("Database " + config.getDbname() +
@@ -87,17 +74,21 @@ class JsonStoreDataAccess (config: CloudantConfig)  {
 
   def getTotalRows(url: String, queryUsed: Boolean)
       (implicit postData: String = null): Int = {
-      val totalUrl = (if (queryUsed) url else config.getTotalUrl(url))
-      this.getQueryResult[Int](totalUrl,
+      if (queryUsed) config.queryLimit // Query can not retrieve total row now.
+      else {
+        val totalUrl = config.getTotalUrl(url)
+        this.getQueryResult[Int](totalUrl,
           { result => config.getTotalRows(Json.parse(result))})
+      }
   }
 
   private def processAll (result: String)
-      (implicit columns: Array[String]) = {
-    logger.debug(s"processAll columns:$columns")
+      (implicit columns: Array[String],
+      postData: String = null) = {
+    logger.debug(s"processAll:$result, columns:$columns")
     val jsonResult: JsValue = Json.parse(result)
-    var rows = config.getRows(jsonResult)
-    if (config.viewName == null) {
+    var rows = config.getRows(jsonResult, postData!=null )
+    if (config.viewName == null && postData==null) {
       // filter design docs
       rows = rows.filter(r => FilterDDocs.filter(r))
     }
@@ -105,7 +96,8 @@ class JsonStoreDataAccess (config: CloudantConfig)  {
   }
 
   private def processIterator (result: String)
-    (implicit columns: Array[String]): Iterator[String] = {
+    (implicit columns: Array[String],
+      postData: String = null): Iterator[String] = {
     processAll(result).iterator
   }
 

@@ -34,10 +34,10 @@ class CloudantConfig(val protocol: String, val host: String,
     (implicit val username: String, val password: String,
     val partitions: Int, val maxInPartition: Int, val minInPartition: Int,
     val requestTimeout: Long, val bulkSize: Int, val schemaSampleSize: Int,
-    val createDBOnSave: Boolean, val selector: String, val useQuery: Boolean = false)
+    val createDBOnSave: Boolean, val selector: String, val useQuery: Boolean = false,
+    val queryLimit: Int)
     extends Serializable{
 
-  private val SCHEMA_FOR_ALL_DOCS_NUM = -1
   private lazy val dbUrl = {protocol + "://" + host + "/" + dbName}
 
   val pkField = "_id"
@@ -82,37 +82,22 @@ class CloudantConfig(val protocol: String, val host: String,
 
   def queryEnabled(): Boolean = {useQuery && indexName==null && viewName==null}
 
-  def allowPartition(): Boolean = {indexName==null}
+  def allowPartition(queryUsed: Boolean): Boolean = {indexName==null && !queryUsed}
 
-  def getOneUrl(): String = {
-    dbUrl + "/_all_docs?limit=1&include_docs=true"
-  }
+  def getAllDocsUrl(limit: Int, excludeDDoc: Boolean = false): String = {
 
-  def getOneUrlExcludeDDoc1(): String = {
-    dbUrl + "/_all_docs?endkey=%22_design/%22&limit=1&include_docs=true"
-  }
-
-  def getOneUrlExcludeDDoc2(): String = {
-    dbUrl + "/_all_docs?startkey=%22_design0/%22&limit=1&include_docs=true"
-  }
-
-  def getAllDocsUrlExcludeDDoc(limit: Int): String = {
     if (viewName == null) {
-      dbUrl + "/_all_docs?startkey=%22_design0/%22&limit=" + limit + "&include_docs=true"
-    } else {
-      dbUrl + "/" + viewName + "?limit=1"
-    }
-  }
-
-  def getAllDocsUrl(limit: Int): String = {
-    if (viewName == null) {
-      if (limit == SCHEMA_FOR_ALL_DOCS_NUM) {
-        dbUrl + "/_all_docs?include_docs=true"
+      val baseUrl = (
+          if ( excludeDDoc) dbUrl + "/_all_docs?startkey=%22_design0/%22&include_docs=true"
+          else dbUrl + "/_all_docs?include_docs=true"
+          )
+      if (limit == JsonStoreConfigManager.ALL_DOCS_LIMIT) {
+        baseUrl
       } else {
-        dbUrl + "/_all_docs?limit=" + limit + "&include_docs=true"
+        baseUrl + "&limit=" + limit
       }
     } else {
-      if (limit == JsonStoreConfigManager.SCHEMA_FOR_ALL_DOCS_NUM) {
+      if (limit == JsonStoreConfigManager.ALL_DOCS_LIMIT) {
         dbUrl + "/" + viewName
       } else {
         dbUrl + "/" + viewName + "?limit=" + limit
@@ -241,8 +226,10 @@ class CloudantConfig(val protocol: String, val host: String,
     }
   }
 
-  def getRows(result: JsValue): Seq[JsValue] = {
-    if (viewName == null) {
+  def getRows(result: JsValue, queryUsed: Boolean): Seq[JsValue] = {
+    if ( queryUsed ) {
+      ((result \ "docs").as[JsArray]).value.map(row => row)
+    } else if ( viewName == null) {
       ((result \ "rows").as[JsArray]).value.map(row => (row \ "doc").get)
     } else {
       ((result \ "rows").as[JsArray]).value.map(row => row)

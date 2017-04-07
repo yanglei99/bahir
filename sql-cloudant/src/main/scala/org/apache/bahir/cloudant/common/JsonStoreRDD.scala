@@ -54,8 +54,8 @@ class JsonStoreRDD(sc: SparkContext, config: CloudantConfig)
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  private def getTotalPartition(totalRows: Int): Int = {
-    if (totalRows == 0 || ! config.allowPartition() )  1
+  private def getTotalPartition(totalRows: Int, queryUsed: Boolean): Int = {
+    if (totalRows == 0 || ! config.allowPartition(queryUsed) )  1
     else if (totalRows < config.partitions * config.minInPartition) {
       val total = totalRows / config.minInPartition
       if (total == 0 ) {
@@ -164,7 +164,7 @@ class JsonStoreRDD(sc: SparkContext, config: CloudantConfig)
       }
     }
     val totalRows = new JsonStoreDataAccess(config).getTotalRows(url, queryUsed)
-    val totalPartition = getTotalPartition(totalRows)
+    val totalPartition = getTotalPartition(totalRows, queryUsed)
     val limitPerPartition = getLimitPerPartition(totalRows, totalPartition)
 
     logger.info(s"Partition config - total=$totalPartition, " +
